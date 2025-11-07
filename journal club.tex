@@ -1,0 +1,132 @@
+% diffphore-math.tex
+% Standalone LaTeX document collecting key equations for DiffPhore
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{bm}
+\usepackage{physics}
+
+\title{Key Mathematical Formulations for 3D Ligand--Pharmacophore Mapping (DiffPhore)}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+% ------------------------------
+% Problem Definition
+% ------------------------------
+\section*{Problem Definition}
+
+% (1) LPM mapping objective
+\begin{equation}\label{eq:lpm-objective}
+\hat{G}_l = \mathrm{Model}\!\left(G_p,\, G_l\right),
+\end{equation}
+where $G_p$ denotes the pharmacophore model (graphical 3D representation), $G_l$ is the input ligand conformation, and $\hat{G}_l$ is the generated ligand conformation (same chemistry as $G_l$, different 3D pose).
+
+% Conditional density to approximate
+The learning goal is to approximate the conditional density
+\begin{equation}\label{eq:cond-density}
+P\!\left(\hat{G}_l \mid G_p,\, G_l\right),
+\end{equation}
+whose score (gradient of log-density) guides denoising/generation.
+
+% ------------------------------
+% Score-based Generative Modeling (Langevin)
+% ------------------------------
+\section*{Score-based Generative Modeling}
+
+% (2) Langevin dynamics update (generic)
+\paragraph{Langevin dynamics (generic).}
+Given a stepsize $\epsilon>0$ and Gaussian noise $z_t \sim \mathcal{N}(0, I)$, iterative denoising is
+\begin{equation}\label{eq:langevin-generic}
+\hat{G}_{l,t} \;=\; \hat{G}_{l,t-1}
+\;+\; \epsilon\, \nabla_{\hat{G}_{l,t-1}} \log P\!\left(\hat{G}_{l,t-1} \mid G_p, G_l\right)
+\;+\; \sqrt{2\epsilon}\, z_t,
+\quad 1 \le t \le T .
+\end{equation}
+
+% (3) Perturbation at noise level sigma
+\paragraph{Gaussian perturbation at noise level $\sigma$.}
+At step $t$ with noise scale $\sigma_t$, the perturbed sample is modeled as
+\begin{equation}\label{eq:gaussian-perturb}
+P_{\sigma}\!\left(G_{l,t} \mid G_l^{\ast},\, G_p\right)
+\;=\; \mathcal{N}\!\big(G_{l,t} \,\big|\, G_l^{\ast},\, \sigma^2 I\big),
+\end{equation}
+with a decreasing schedule $\sigma_1 > \sigma_2 > \cdots > \sigma_T$.
+
+% (4) Score network training loss
+\paragraph{Score network training loss.}
+Let $\mathrm{CFGenerator}(G_{l,t}, G_p, \sigma_t)$ estimate the score $\nabla_{G_{l,t}} \log P_{\sigma_t}(G_{l,t}\!\mid\! G_l^{\ast})$. The denoising score matching loss is
+\begin{equation}\label{eq:score-loss}
+\mathcal{L}
+= \frac{1}{T}\sum_{t=1}^{T}\,
+\sigma_t^2\;
+\mathbb{E}_{G_l^{\ast}\sim P_{\text{data}}}\;
+\mathbb{E}_{G_{l,t}\sim P_{\sigma_t}(\cdot \mid G_l^{\ast})}
+\left\|
+\mathrm{CFGenerator}(G_{l,t}, G_p, \sigma_t)
+- \nabla_{G_{l,t}} \log P_{\sigma_t}(G_{l,t}\mid G_l^{\ast})
+\right\|^2 .
+\end{equation}
+
+% (5) Generation-time Langevin MCMC with learned score
+\paragraph{Generation-time Langevin (with learned score).}
+At inference, replace the true score with the network output:
+\begin{equation}\label{eq:langevin-learned}
+\hat{G}_{l,t}
+= \hat{G}_{l,t-1}
++ \epsilon_{t-1}\, \mathrm{CFGenerator}\!\big(\hat{G}_{l,t-1},\, G_p,\, \sigma_{t-1}\big)
++ \sqrt{2\epsilon_{t-1}}\, z_t ,
+\quad 1 \le t \le T .
+\end{equation}
+
+% ------------------------------
+% Knowledge-guided LPM Representation (Graphs)
+% ------------------------------
+\section*{Knowledge-guided LPM Representation}
+
+% (6) Heterogeneous geometric graph
+\paragraph{Heterogeneous geometric graph.}
+At step $t$, the LPM encoder builds
+\begin{equation}\label{eq:lpm-graph}
+G_t \;=\; \mathrm{LPMEncoder}(G_{l,t},\, G_p)
+\;=\; \big\{\, G_{l,t},\; G_p,\; G_{lp}\,\big\},
+\end{equation}
+where $G_{l,t}$ is the ligand graph (atoms $V_l$, coordinates $x_t$, edges $E_l$), $G_p$ is the pharmacophore graph (feature points $V_p$, coordinates $x_p$, edges $E_p$ plus connections from exclusion spheres), and $G_{lp}$ is a bipartite graph linking ligand atoms to pharmacophore points. The bipartite features include type-matching vectors $V_{lp}$ and direction-matching vectors $N_{lp}$.
+
+% ------------------------------
+% Geometry: Translations, Rotations, Torsions
+% ------------------------------
+\section*{Geometry: Translations, Rotations, and Torsions}
+
+% (7-8) Conformation manifold
+\paragraph{Conformation manifold.}
+Let $m$ be the number of rotatable bonds. A ligand conformation lies on an $(m+6)$-dimensional product space
+\begin{align}
+g &= (\,r,\, R,\, \theta\,) \in \mathcal{P}, \label{eq:state-triple}\\
+\mathcal{P} &= \mathbb{T}^3 \times \mathrm{SO}(3) \times \mathrm{SO}(2)^m, \label{eq:product-space}
+\end{align}
+where $r \in \mathbb{T}^3$ (translation), $R \in \mathrm{SO}(3)$ (rotation), and $\theta \in \mathrm{SO}(2)^m$ (torsion angles).
+
+% (9) Applying a pose update to coordinates
+\paragraph{Applying a pose update.}
+Given coordinates $x_t$ at step $t$, a pose update $g=(r,R,\theta)$ yields
+\begin{equation}\label{eq:apply-update}
+x_{t-\Delta t}
+= \mathcal{A}(r, R, \theta;\, x_t)
+= \mathcal{A}_{\mathrm{tr}}(r)\;
+  \mathcal{A}_{\mathrm{rot}}(R)\;
+  \mathcal{A}_{\mathrm{tor}}(\theta)\; x_t .
+\end{equation}
+
+% (10) Predicting directions (scores) for pose changes
+\paragraph{Predicting change directions (scores).}
+Rather than predicting absolute poses, the generator outputs score-like directions:
+\begin{equation}\label{eq:predict-directions}
+(\alpha,\, \beta,\, \gamma)
+= \mathrm{CFGenerator}(G_t,\, t),
+\end{equation}
+interpretable as directions for translation $\Delta r$, rotation $\Delta R$, and torsions $\Delta \theta$, respectively.
+
+\end{document}
